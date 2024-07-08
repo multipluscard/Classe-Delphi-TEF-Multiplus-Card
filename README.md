@@ -67,6 +67,6 @@ Pode-se usar uma variável global para definição de chamada ao TEF, e definir 
 
 As informações da transação TEF estarão contidas nessa variável, onde serão processadas conforme o fluxo do ERP. Dentro dessa variável estão os comprovantes na forma de TStringList e que podem ser armazenados em Banco de Dados ou em arquivo. Veja na imagem abaixo o exemplo para acessar algumas informações de retorno.
 
-[imagem]
+![imagem](readme-imgs/11.png)
 
 Obs.: No exemplo está comentado de forma bem detalhada os passos para transacionar.
