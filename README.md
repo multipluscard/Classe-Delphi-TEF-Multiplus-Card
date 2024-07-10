@@ -70,3 +70,7 @@ As informações da transação TEF estarão contidas nessa variável, onde ser�
 ![imagem](readme-imgs/11.png)
 
 Obs.: No exemplo está comentado de forma bem detalhada os passos para transacionar.
+
+---
+> [!IMPORTANT]
+> Para obter a versão mais recente da DLL baixe através do Portal do Representante na sessão Downloads.
