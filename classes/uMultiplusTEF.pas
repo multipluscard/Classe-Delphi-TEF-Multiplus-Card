@@ -25,7 +25,7 @@ type
    TMultiplusTEF = class
       Private
          //---------------------------------------------------------------------
-         LConfigPINPAD     : TConfigPINPAD;      // Configuração do ÌNPAD
+         LConfigPINPAD     : TConfigPINPAD;      // Configuração do PINPAD
          LImpressoraPorta  : string;
          LImpressoraAvanco : integer;
          LImpressoraModelo : TACBrPosPrinterModelo;
@@ -54,6 +54,9 @@ type
          LDataHora             : TDateTime;
          //---------------------------------------------------------------------
          LRetornoTransacao     : TMultiplusRetornoTransacao;  // Retorno da transação
+         //---------------------------------------------------------------------
+         LAtualizouTabelas     : boolean;
+         LLimpouTabelas        : boolean;
          //---------------------------------------------------------------------
          procedure SA_Salva_Arquivo_Incremental(linha,nome_arquivo:string);
          function untransform(palavra:string):real;
@@ -91,13 +94,16 @@ type
          PinPad               : TACBrAbecsPinPad;
          //---------------------------------------------------------------------
          constructor Create();
+         destructor Destroy(); override;
          procedure SA_ProcessarPagamento;
          procedure SA_Cancelamento;
+         procedure SA_AtualizarTabelas(LimparTabelasAntesdeAtualizar : boolean = false);
+         procedure SA_LimparTabelas;
          //---------------------------------------------------------------------
          property SalvarLog            : boolean read LSalvarLog write LSalvarLog;
          property Executando           : boolean read LExecutando;
          //---------------------------------------------------------------------
-         property ConfigPINPAD     : TConfigPINPAD read LConfigPINPAD write LConfigPINPAD;  // Configuração do PiNPAD
+         property ConfigPINPAD     : TConfigPINPAD read LConfigPINPAD write LConfigPINPAD;  // Configuração do Pinpad
          property ImpressoraPorta  : string read LImpressoraPorta write LImpressoraPorta;
          property ImpressoraAvanco : integer read LImpressoraAvanco write LImpressoraAvanco;
          property ImpressoraModelo : TACBrPosPrinterModelo read LImpressoraModelo write LImpressoraModelo;
@@ -120,6 +126,8 @@ type
          property CodigoLoja           : string                  read LCodigoLoja    write LCodigoLoja;
          //---------------------------------------------------------------------
          property RetornoTransacao     : TMultiPlusRetornoTransacao read LRetornoTransacao write LRetornoTransacao;  // Para retornar a transação
+         property AtualizouTabelas     : boolean                    read LAtualizouTabelas write LAtualizouTabelas;  // Atualização das tabelas ocorreu com sucesso
+         property LimpouTabelas        : boolean                    read LLimpouTabelas    write LLimpouTabelas;     // Limpar as tabelas do Pinpad
          //---------------------------------------------------------------------
    end;
    //---------------------------------------------------------------------
@@ -155,6 +163,9 @@ function FinalizaFuncaoMCInterativo( iComando         : Integer;
 
 function CancelarFluxoMCInterativo(): Integer; stdcall;  external 'TefClientmc.dll';
 
+function AtualizarTabelas (sCnpjCliente : string; sCodigoLoja : string ; sNumeroPDV:string; iLimpaTb : integer) : PAnsiChar; stdcall; external 'TefClientmc.dll';
+
+function LimparTabelas(sCnpjCliente : string ; sCodigoLoja : string ; sNumeroPDV : string) : PAnsiChar; stdcall; external 'TefClientmc.dll';
    //---------------------------------------------------------------------------
 implementation
 
@@ -174,6 +185,62 @@ begin
    //---------------------------------------------------------------------------
    inherited;
    //---------------------------------------------------------------------------
+end;
+
+destructor TMultiplusTEF.Destroy;
+begin
+   GerenciadorImpressao.Free;
+   PinPad.Free;
+   inherited;
+end;
+
+procedure TMultiplusTEF.SA_AtualizarTabelas(LimparTabelasAntesdeAtualizar : boolean = false);
+var
+   retorno       : string;
+   LimparTabelas : integer;
+begin
+   //---------------------------------------------------------------------------
+   //   Iniciando a tela de TEF
+   //---------------------------------------------------------------------------
+   Application.CreateForm(Tfrmwebtef, frmwebtef);
+   frmwebtef.DoubleBuffered   := true;
+   frmwebtef.TituloJanela     := LTituloJanela;
+   frmwebtef.Cancelar         := false;
+   frmwebtef.lbforma.Caption  := LForma;
+   frmwebtef.lbvalor.Caption  := transform(LValor);
+   frmwebtef.lb_tempo.Caption := '';
+   frmwebtef.TituloJanela     := LTituloJanela;
+   frmwebtef.Show;
+   //---------------------------------------------------------------------------
+   TThread.CreateAnonymousThread(procedure
+      begin
+         //---------------------------------------------------------------------
+         TThread.Synchronize(TThread.CurrentThread,
+         procedure
+            begin
+               frmwebtef.mensagem := 'Atualizando tabelas...';
+               SA_Mostrar_Mensagem(true);
+            end);
+         //---------------------------------------------------------------------
+         LimparTabelas := 1;  // Definir a variável para atualizar as tabelas sem limpar
+         if LimparTabelasAntesdeAtualizar then  // Foi definido que deve limpar as tabelas antes de atualizar
+            LimparTabelas := 0;
+         SA_SalvarLog('ATUALIZAR TABELAS','AtualizarTabelas');  // Salvar LOG - Se ativado
+         retorno := string(AtualizarTabelas (LCNPJ,LCodigoLoja,LPdv,LimparTabelas));
+         SA_SalvarLog('RETORNO ATUALIZAR TABELAS',retorno);  // Salvar LOG - Se ativado
+         if retorno<>'' then
+            LAtualizouTabelas := pos('SUCESSO',retorno)>0
+         else
+            LAtualizouTabelas := false;
+         //---------------------------------------------------------------------
+         //   Fechando a janela do TEF
+         //---------------------------------------------------------------------
+         SA_MostrarLogoPINPAD;   // Mostrando a imagem de LOGO na tela do PINPAD
+         frmwebtef.Close;
+         frmwebtef.Release;
+         lExecutando := false;
+         //---------------------------------------------------------------------
+      end).Start;
 end;
 
 procedure TMultiPlusTEF.SA_Cancelamento;
@@ -282,7 +349,7 @@ begin
                         else if (acao=TPMultiPlusERROABORTAR) or (acao=TPMultiPlusERRODISPLAY) then // Somente mostrar uma mensagem na tela e encerrar o processo
                            begin
                               //------------------------------------------------
-                              //   Ocorreu um evento que provocou o encerramento do processo (Abortar é apoiar o LULA)
+                              //   Ocorreu um evento que provocou o encerramento do processo
                               //------------------------------------------------
                               frmwebtef.mensagem := SA_SA_MultiPlusMensagemRetorno(SRetorno);
                               TThread.Synchronize(TThread.CurrentThread,
@@ -748,7 +815,7 @@ var
    posicao : integer;
 begin
    //---------------------------------------------------------------------------
-   // #NSU=297451687|ORIGEM=GERENCIANET|VALOR=1,25|QRCODE=00020101021226830014BR.GOV.BCB.PIX2561qrcodespix.sejaefi.com.br/v2/644a50911e914d8db93eec75d9bffdd75204000053039865802BR5905EFISA6008SAOPAULO62070503***63046283
+   // #NSU=000000000|ORIGEM=GERENCIANET|VALOR=1,25|QRCODE=00020101021226830014BR.GOV.BCB.PIX2561qrcodespix.sejaefi.com.br/v2/644a50911e914d8db93eec75d9bffdd75204000053039865802BR5905EFISA6008SAOPAULO62070503***63046283
    //   inicio=6 / fim = 15 => fim-inicio = 9
    //---------------------------------------------------------------------------
    DadosPIX := DadosPIX +'|';  // Incluindo um delimitador no final da string;
@@ -852,6 +919,165 @@ begin
    GerenciadorImpressao.Rodape.Text := linhas_escpos.Text;
    linhas_escpos.Free;
    //---------------------------------------------------------------------------
+end;
+
+procedure TMultiplusTEF.SA_LimparTabelas;
+var
+   IRetorno   : integer;
+   sair       : boolean;
+   SRetorno   : widestring;
+   acao       : TPRetornoMultiPlus;
+   RetornoMsg : string;   // Para processar a mensagem em caso de ser PIX
+begin
+   //---------------------------------------------------------------------------
+   //   Iniciando a tela de TEF
+   //---------------------------------------------------------------------------
+   Application.CreateForm(Tfrmwebtef, frmwebtef);
+   frmwebtef.DoubleBuffered   := true;
+   frmwebtef.Cancelar         := false;
+   frmwebtef.lbforma.Caption  := LForma;
+   frmwebtef.lbvalor.Caption  := transform(LValor);
+   frmwebtef.lb_tempo.Caption := '';
+   frmwebtef.TituloJanela     := LTituloJanela;
+   frmwebtef.Show;
+   //---------------------------------------------------------------------------
+   TThread.CreateAnonymousThread(procedure
+   begin
+      //------------------------------------------------------------------------
+      //   Inicializar TEF
+      //------------------------------------------------------------------------
+      TThread.Synchronize(TThread.CurrentThread,
+      procedure
+      begin
+         frmwebtef.mensagem := 'Limpando tabelas...';
+         SA_Mostrar_Mensagem(true);
+      end);
+      //------------------------------------------------------------------------
+      SA_SalvarLog('CHAMADA LIMPAR TABELAS','Limpar tabelas');
+      IRetorno := IniciaFuncaoMCInterativo(110,
+                                           PAnsiChar(AnsiString(LCNPJ)),
+                                           1,
+                                           PAnsiChar(AnsiString(LCupom.ToString)),
+                                           PAnsiChar(AnsiString(trim(FormatFloat('#####0.00',1)))),
+                                           PAnsiChar(AnsiString(LNSU)),
+                                           PAnsiChar(AnsiString(formatdatetime('yyyyMMdd',LData))),
+                                           PAnsiChar(AnsiString(LPdv)),
+                                           PAnsiChar(AnsiString(LCodigoLoja)),
+                                           0,
+                                           '');
+      //------------------------------------------------------------------------
+      if IRetorno=0 then
+         begin
+            //------------------------------------------------------------------
+            //  Sem ocorrência de erros, continuar o processo
+            //------------------------------------------------------------------
+            sair    := false;
+            while not sair do
+               begin
+                  //------------------------------------------------------------
+                  //   Fazer fluxo de consulta do TEF
+                  //------------------------------------------------------------
+                  try
+                     SRetorno := widestring(AguardaFuncaoMCInterativo());
+                  except on e:exception do
+                     begin
+                        LLimpouTabelas := false;
+                        SA_SalvarLog('ERRO AguardaFuncaoMCInterativo',e.Message);  // Salvar LOG - Se ativado
+                     end;
+                  end;
+                  if SRetorno<>'' then   // Se o retorno não é vazio, verificar que tipo de retorno
+                     begin
+                        //------------------------------------------------------
+                        //  acao = TPRetornoMultiPlus e de acordo com o retorno deverá ser executado um processo
+                        // TPRetornoMultiPlus = (TPMultiPlusMENU , TPMultiPlusMSG , TPMultiPlusPERGUNTA , TPMultiPlusRETORNO , TPMultiPlusERROABORTAR , TPMultiPlusERRODISPLAY,TPMultiPlusINDEFINIDO);
+                        //------------------------------------------------------
+                        SA_SalvarLog('RESPOSTA AguardaFuncaoMCInterativo',SRetorno);  // Salvar LOG - Se ativado
+                        //------------------------------------------------------
+                        acao     := SA_MultiPlusTPRetorno(SRetorno);
+                        //------------------------------------------------------
+                        if acao=TPMultiPlusMSG then // Somente mostrar uma mensagem na tela
+                           begin
+                              //------------------------------------------------
+                              //  Mostrar a mensagem na tela
+                              //------------------------------------------------
+                              RetornoMsg := SA_SA_MultiPlusMensagemRetorno(SRetorno);
+                              frmwebtef.mensagem := RetornoMsg;
+                              //------------------------------------------------
+                              TThread.Synchronize(TThread.CurrentThread,
+                                 procedure
+                                    begin
+                                       SA_Mostrar_Mensagem(true);
+                                    end);
+                              //------------------------------------------------
+                           end
+                        else if (acao=TPMultiPlusERROABORTAR) or (acao=TPMultiPlusERRODISPLAY) then // Somente mostrar uma mensagem na tela e encerrar o processo
+                           begin
+                              //------------------------------------------------
+                              //   Ocorreu um evento que provocou o encerramento do processo
+                              //------------------------------------------------
+                              frmwebtef.mensagem := SA_SA_MultiPlusMensagemRetorno(SRetorno);
+                              TThread.Synchronize(TThread.CurrentThread,
+                                 procedure
+                                    begin
+                                       SA_Mostrar_Mensagem(true);
+                                    end);
+                              //------------------------------------------------
+                              SA_AtivarBTCancelar;   // Ativar o botão cancelar na tela de TEF
+                              while not frmwebtef.Cancelar do   // Esperando que o operador pressione o botão de cancelar
+                                 begin
+                                    sleep(50);
+                                 end;
+                              LLimpouTabelas := false;
+                              sair           := true;   // Ativar a saída do LOOP
+                              //------------------------------------------------
+                           end
+                        else if acao=TPMultiPlusRETORNO then
+                           begin
+                              LLimpouTabelas := true;
+                              sair           := true;   // Ativar a saída do LOOP
+                           end;
+
+
+                     end;
+
+
+
+               end;
+            //------------------------------------------------------------------
+         end
+      else
+         begin
+            //------------------------------------------------------------------
+            //  Ocorreu um erro
+            //------------------------------------------------------------------
+            CancelarFluxoMCInterativo;
+            SA_SalvarLog('RESPOSTA ATUALIZAR TABELAS',SA_RetornoErro(IRetorno));
+            frmwebtef.mensagem := SA_RetornoErro(IRetorno);
+            //------------------------------------------------------------------
+            TThread.Synchronize(TThread.CurrentThread,
+            procedure
+            begin
+               SA_Mostrar_Mensagem(true);
+            end);
+            //------------------------------------------------------------------
+            SA_AtivarBTCancelar;
+            while not frmwebtef.Cancelar do
+               begin
+                  sleep(50);
+               end;
+            //------------------------------------------------------------------
+         end;
+
+
+      //------------------------------------------------------------------------
+      //   Fechando a janela do TEF
+      //------------------------------------------------------------------------
+      SA_MostrarLogoPINPAD;   // Mostrando a imagem de LOGO na tela do PINPAD
+      frmwebtef.Close;
+      frmwebtef.Release;
+      lExecutando := false;
+      //------------------------------------------------------------------------
+   end).Start;
 end;
 
 //------------------------------------------------------------------------------
@@ -1181,7 +1407,7 @@ begin
                         else if (acao=TPMultiPlusERROABORTAR) or (acao=TPMultiPlusERRODISPLAY) then // Somente mostrar uma mensagem na tela e encerrar o processo
                            begin
                               //------------------------------------------------
-                              //   Ocorreu um evento que provocou o encerramento do processo (Abortar é apoiar o LULA)
+                              //   Ocorreu um evento que provocou o encerramento do processo
                               //------------------------------------------------
                               frmwebtef.mensagem := SA_SA_MultiPlusMensagemRetorno(SRetorno);
                               TThread.Synchronize(TThread.CurrentThread,
@@ -1741,7 +1967,7 @@ begin
    // [PERGUNTA]#INFORME O NSU#INT#0#0#0,00#0,00#0
    // [PERGUNTA]#TITULO#TIPO DE DADO#TAMANHO MINIMO#TAMANHO MAXIMO#VALOR MINIMO#VALOR MAXIMO#CASAS DECIMAIS
    //---------------------------------------------------------------------------
-   //   Yítulo
+   //   Título
    //---------------------------------------------------------------------------
    delete(retorno,1,11);
    inicio        := pos('#',retorno);
@@ -1836,7 +2062,7 @@ begin
       Result.CARTAO_PRE_PAGO  := false;
    Result.COD_TIPO_TRANSACAO  := SA_SA_MultiPlusBuscarCampo('CAMPO0100',retorno);                // Código do tipo de transação
    Result.DESC_TRANSACAO      := SA_SA_MultiPlusBuscarCampo('CAMPO0101',retorno);                // Descrição do tipo da transação
-   Result.E2E                 := SA_SA_MultiPlusBuscarCampo('CAMPO0101',retorno);                // QR CODE Retornado pela DLL para ser exibido na tela
+   Result.E2E                 := SA_SA_MultiPlusBuscarCampo('CAMPO2620',retorno);                // Identificacao da transação PIX (E2E), utilizado para NFCe
    Result.Data                := LData;
    Result.Hora                := LHora;
    //---------------------------------------------------------------------------

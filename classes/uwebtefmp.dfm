@@ -11,7 +11,6 @@ object frmwebtef: Tfrmwebtef
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
   Position = poMainFormCenter
   OnActivate = ActivateTEF
   OnCreate = FormCreate
@@ -19,7 +18,6 @@ object frmwebtef: Tfrmwebtef
   DesignSize = (
     1068
     700)
-  PixelsPerInch = 96
   TextHeight = 13
   object fundo: TShape
     Left = 8
@@ -46,7 +44,7 @@ object frmwebtef: Tfrmwebtef
     Alignment = taCenter
     Anchors = [akLeft, akTop, akRight]
     AutoSize = False
-    Caption = 'MKM Web TEF'
+    Caption = 'TEF'
     Font.Charset = ANSI_CHARSET
     Font.Color = 3618615
     Font.Height = -75
